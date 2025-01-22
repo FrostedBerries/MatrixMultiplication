@@ -1,0 +1,133 @@
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+#define TILE_SIZE 16 // Adjust as needed for Fox's method
+
+
+__global__ void blockStripeKernel(int* A, int* B, int* C, int N) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int sum = 0;
+
+    if (row < N && col < N) {
+        for (int k = 0; k < N; k++) {
+            sum += A[row * N + k] * B[k * N + col];
+        }
+        C[row * N + col] = sum;
+    }
+}
+
+
+__global__ void foxKernel(int* A, int* B, int* C, int N) {
+    __shared__ int tileA[TILE_SIZE][TILE_SIZE];
+    __shared__ int tileB[TILE_SIZE][TILE_SIZE];
+
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int threadRow = threadIdx.y;
+    int threadCol = threadIdx.x;
+
+    int sum = 0;
+
+    for (int phase = 0; phase < gridDim.x; ++phase) {
+        // Load tiles into shared memory
+        int aIndex = row * N + (phase * TILE_SIZE + threadCol);
+        int bIndex = (phase * TILE_SIZE + threadRow) * N + col;
+
+        tileA[threadRow][threadCol] = (row < N && (phase * TILE_SIZE + threadCol) < N) ? A[aIndex] : 0;
+        tileB[threadRow][threadCol] = ((phase * TILE_SIZE + threadRow) < N && col < N) ? B[bIndex] : 0;
+
+        __syncthreads();
+
+        for (int k = 0; k < TILE_SIZE; ++k) {
+            sum += tileA[threadRow][k] * tileB[k][threadCol];
+        }
+
+        __syncthreads();
+    }
+
+    // Write result to global memory
+    if (row < N && col < N) {
+        C[row * N + col] = sum;
+    }
+}
+
+void initializeMatrix(int* mat, int N) {
+    for (int i = 0; i < N * N; i++) {
+        mat[i] = i * 5;
+        //mat[i] = rand() % 10;
+    }
+}
+
+void printMatrix(int* mat, int N) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            printf("%d ", mat[i * N + j]);
+        }
+        printf("\n");
+    }
+}
+
+int main() {
+    int N = 15000; // matrix size
+
+    // Allocate host memory
+    int* h_A = (int*)malloc(N * N * sizeof(int));
+    int* h_B = (int*)malloc(N * N * sizeof(int));
+    int* h_C = (int*)malloc(N * N * sizeof(int));
+
+    initializeMatrix(h_A, N);
+    initializeMatrix(h_B, N);
+
+    // Allocate device memory
+    int* d_A, * d_B, * d_C;
+    cudaMalloc(&d_A, N * N * sizeof(int));
+    cudaMalloc(&d_B, N * N * sizeof(int));
+    cudaMalloc(&d_C, N * N * sizeof(int));
+
+    cudaMemcpy(d_A, h_A, N * N * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, h_B, N * N * sizeof(int), cudaMemcpyHostToDevice);
+
+    dim3 threadsPerBlock(TILE_SIZE, TILE_SIZE);
+    dim3 numBlocks((N + TILE_SIZE - 1) / TILE_SIZE, (N + TILE_SIZE - 1) / TILE_SIZE);
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    // CHOOSE METHOD
+    // Block-Stripe Decomposition
+    printf("Using Block-Stripe Decomposition Method\n");
+    blockStripeKernel<<<numBlocks, threadsPerBlock>>>(d_A, d_B, d_C, N);
+
+    // Fox's Method
+    /*printf("Using Fox's Method\n");
+    foxKernel << <numBlocks, threadsPerBlock >> > (d_A, d_B, d_C, N);*/
+
+    // Stop timing
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+
+    // Copy result back to host
+    cudaMemcpy(h_C, d_C, N * N * sizeof(int), cudaMemcpyDeviceToHost);
+
+    printf("Resultant Matrix:\n");
+    //printMatrix(h_C, N);
+
+    printf("Execution Time: %f ms\n", milliseconds);
+
+    // Free memory
+    free(h_A);
+    free(h_B);
+    free(h_C);
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+
+    return 0;
+}
