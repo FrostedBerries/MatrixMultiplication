@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <omp.h> // OpenMP for CPU parallelism
 
-#define TILE_SIZE 32
+#define TPB 32
 
 __global__ void blockStripeKernel(int* A, int* B, int* C, int N) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -95,8 +95,8 @@ int main() {
     int gpuEndRow = N; // GPU handles the rest
 
     // Prepare GPU launch parameters
-    dim3 threadsPerBlock(TILE_SIZE, TILE_SIZE);
-    dim3 numBlocks((N + TILE_SIZE - 1) / TILE_SIZE, (gpuEndRow - gpuStartRow + TILE_SIZE - 1) / TILE_SIZE);
+    dim3 threadsPerBlock(TPB, TPB);
+    dim3 numBlocks((N + TPB - 1) / TPB, (gpuEndRow - gpuStartRow + TPB - 1) / TPB);
 
     // Time both computations
     cudaEvent_t start, stop;
