@@ -31,9 +31,17 @@ void cpuMatrixMultiply(int* A, int* B, int* C, int N, int startRow, int endRow) 
     }
 }
 
+void transposeMatrix(const int* input, int* output, int N) {
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            output[j * N + i] = input[i * N + j];
+        }
+    }
+}
+
 void initializeMatrix(int* mat, int N) {
     for (int i = 0; i < N * N; i++) {
-        mat[i] = i % 10 + 1;
+        mat[i] = i;
     }
 }
 
@@ -68,18 +76,38 @@ void printMatrix(int* mat, int N, int maxSize) {
 }
 
 int main() {
-    int N = 4096; // Adjust size for testing
-    int loadProportion = 32;
+    int N = 3; // Adjust size for testing
+    int loadProportion = 1;
+
+    // Define GPU and CPU work ranges
+    int cpuStartRow = 0;
+    int cpuEndRow = N / loadProportion; // CPU handles first portion
+    int gpuStartRow = N / loadProportion;
+    int gpuEndRow = N; // GPU handles the rest
+
+    double cpuStart;
+    double cpuEnd;
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
     // Allocate host memory
     int* h_A = (int*)malloc(N * N * sizeof(int));
     int* h_B = (int*)malloc(N * N * sizeof(int));
     int* h_C = (int*)malloc(N * N * sizeof(int));
+    int* tempMat = (int*)malloc(N * N * sizeof(int));
 
     initializeMatrix(h_A, N);
-    initializeMatrix(h_B, N);
+    initializeMatrix(tempMat, N);
+
+    transposeMatrix(tempMat, h_B, N);
+
+    printMatrix(h_A, N);
+    printMatrix(h_B, N);
 
     // Allocate device memory
+    cudaEventRecord(start);
     int* d_A, * d_B, * d_C;
     cudaMalloc(&d_A, N * N * sizeof(int));
     cudaMalloc(&d_B, N * N * sizeof(int));
@@ -88,27 +116,16 @@ int main() {
     cudaMemcpy(d_A, h_A, N * N * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_B, h_B, N * N * sizeof(int), cudaMemcpyHostToDevice);
 
-    // Define GPU and CPU work ranges
-    int cpuStartRow = 0;
-    int cpuEndRow = N / loadProportion; // CPU handles first portion
-    int gpuStartRow = N / loadProportion;
-    int gpuEndRow = N; // GPU handles the rest
-
     // Prepare GPU launch parameters
     dim3 threadsPerBlock(TPB, TPB);
     dim3 numBlocks((N + TPB - 1) / TPB, (gpuEndRow - gpuStartRow + TPB - 1) / TPB);
 
     // Time both computations
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+
 
     // Prepare CUDA stream for parallel execution
     cudaStream_t stream;
     cudaStreamCreate(&stream);
-
-    double cpuStart;
-    double cpuEnd;
 
     printf("-------------------------\n");
     double startAttempt = omp_get_wtime();
@@ -118,7 +135,6 @@ int main() {
     //============================================================
 
     // GPU works on the second part of the matrix
-    cudaEventRecord(start);
     blockStripeKernel << <numBlocks, threadsPerBlock, 0, stream >> > (d_A, d_B, d_C, N);
     cudaEventRecord(stop, stream);
 
