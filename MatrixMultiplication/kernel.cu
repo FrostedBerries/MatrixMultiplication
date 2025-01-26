@@ -13,7 +13,7 @@ __global__ void blockStripeKernel(int* A, int* B, int* C, int N) {
 
     if (row < N && col < N) {
         for (int k = 0; k < N; k++) {
-            sum += A[row * N + k] * B[col * N + k];
+            sum += A[row * N + k] * B[k * N + col];
         }
         C[row * N + col] = sum;
     }
@@ -24,7 +24,7 @@ void cpuMatrixMultiply(int* A, int* B, int* C, int N, int startRow, int endRow) 
         for (int j = 0; j < N; ++j) {
             int sum = 0;
             for (int k = 0; k < N; ++k) {
-                sum += A[i * N + k] * B[j * N + k];
+                sum += A[i * N + k] * B[k * N + j];
             }
             C[i * N + j] = sum;
         }
@@ -41,7 +41,7 @@ void transposeMatrix(const int* input, int* output, int N) {
 
 void initializeMatrix(int* mat, int N) {
     for (int i = 0; i < N * N; i++) {
-        mat[i] = i % 10 + 1;
+        mat[i] = i;
     }
 }
 
@@ -76,7 +76,7 @@ void printMatrix(int* mat, int N, int maxSize) {
 }
 
 int main() {
-    int N = 4;
+    int N = 3; // Adjust size for testing
     int loadProportion = 1;
 
     // Define GPU and CPU work ranges
@@ -103,6 +103,9 @@ int main() {
 
     transposeMatrix(tempMat, h_B, N);
 
+    printMatrix(h_A, N);
+    printMatrix(h_B, N);
+
     // Allocate device memory
     cudaEventRecord(start);
     int* d_A, * d_B, * d_C;
@@ -117,18 +120,22 @@ int main() {
     dim3 threadsPerBlock(TPB, TPB);
     dim3 numBlocks((N + TPB - 1) / TPB, (gpuEndRow - gpuStartRow + TPB - 1) / TPB);
 
+    // Time both computations
+
+
     // Prepare CUDA stream for parallel execution
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
     printf("-------------------------\n");
     double startAttempt = omp_get_wtime();
-
     // Start CPU computation in parallel
+
+
     //============================================================
 
     // GPU works on the second part of the matrix
-    //blockStripeKernel << <numBlocks, threadsPerBlock, 0, stream >> > (d_A, d_B, d_C, N);
+    blockStripeKernel << <numBlocks, threadsPerBlock, 0, stream >> > (d_A, d_B, d_C, N);
     cudaEventRecord(stop, stream);
 
     // CPU works on the first part of the matrix
