@@ -3,12 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h> // OpenMP for CPU parallelism
-#include "eigen-3.4.0\eigen-3.4.0\Eigen\Dense"
-
 
 #define TPB 32
-#define EIGEN_DONT_PARALLELIZE
-
 
 __global__ void blockStripeKernel(int* A, int* B, int* C, int N) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;

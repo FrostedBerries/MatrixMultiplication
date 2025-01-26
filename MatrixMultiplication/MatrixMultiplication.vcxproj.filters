@@ -3,7 +3,4 @@
   <ItemGroup>
     <CudaCompile Include="kernel.cu" />
   </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="Header.cuh" />
-  </ItemGroup>
 </Project>

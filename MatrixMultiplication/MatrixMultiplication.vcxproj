@@ -90,9 +90,6 @@
       <FileType>Document</FileType>
     </CudaCompile>
   </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="Header.cuh" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.6.targets" />
