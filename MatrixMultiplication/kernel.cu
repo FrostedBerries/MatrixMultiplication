@@ -3,8 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h> // OpenMP for CPU parallelism
+#include "eigen-3.4.0\eigen-3.4.0\Eigen\Dense"
+
 
 #define TPB 32
+#define EIGEN_DONT_PARALLELIZE
+
 
 __global__ void blockStripeKernel(int* A, int* B, int* C, int N) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -75,8 +79,11 @@ void printMatrix(int* mat, int N, int maxSize) {
     }
 }
 
+
+
+
 int main() {
-    int N = 4;
+    int N = 40;
     int loadProportion = 1;
 
     // Define GPU and CPU work ranges
@@ -158,6 +165,8 @@ int main() {
 
     // Optionally print the matrix
     printMatrix(h_C, N, 10);
+
+
 
     // Clean up
     free(h_A);
