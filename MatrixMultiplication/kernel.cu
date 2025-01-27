@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <omp.h> // OpenMP for CPU parallelism
 
-#define TPB 32
+#define TPB 16
 
 __global__ void blockStripeKernel(int* A, int* B, int* C, int N) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -121,9 +121,11 @@ void printMatrix(int* mat, int N, int maxSize) {
 
 
 int main() {
-    int n_threads = 12;
-    int N = 2048;
-    int loadProportion = 256;
+    int n_threads = 1;
+    int N = 8192;
+    int loadProportion = N + 1;
+
+    //_sleep(500);
 
     // Define GPU and CPU work ranges
     int cpuStartRow = 0;
@@ -174,7 +176,7 @@ int main() {
     //============================================================
 
     // GPU works on the second part of the matrix
-    blockStripeKernel << <numBlocks, threadsPerBlock, 0, stream >> > (d_A, d_B, d_C, N);
+    blockStripeKernelShared << <numBlocks, threadsPerBlock, 0, stream >> > (d_A, d_B, d_C, N);
     cudaEventRecord(stop, stream);
 
     // CPU works on the first part of the matrix
@@ -182,17 +184,17 @@ int main() {
     cpuMatrixMultiply(h_A, h_B, h_C, N, cpuStartRow, cpuEndRow, n_threads);
     cpuEnd = omp_get_wtime();
     //============================================================
+    cudaMemcpy(h_C + gpuStartRow * N, d_C + gpuStartRow * N, (gpuEndRow - gpuStartRow) * N * sizeof(int), cudaMemcpyDeviceToHost);
 
     cudaEventSynchronize(stop);
+    cudaDeviceSynchronize();
 
-    // Wait for GPU computation to finish
     double endAttempt = omp_get_wtime();
 
     float gpuTime = 0;
     cudaEventElapsedTime(&gpuTime, start, stop);
 
     // Copy GPU result back
-    cudaMemcpy(h_C + gpuStartRow * N, d_C + gpuStartRow * N, (gpuEndRow - gpuStartRow) * N * sizeof(int), cudaMemcpyDeviceToHost);
 
 
     // Print results
@@ -200,7 +202,7 @@ int main() {
     printf("-------------------------\n");
     printf("GPU Execution Time: %f ms\n", gpuTime);
     printf("-------------------------\n");
-    printf("Total time: %f ms\n", (endAttempt - startAttempt) * 1000);
+    //printf("Total time: %f ms\n", (endAttempt - startAttempt) * 1000);
 
     // Optionally print the matrix
     printMatrix(h_C, N, 10);
