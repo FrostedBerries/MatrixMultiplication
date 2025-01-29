@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <omp.h> // OpenMP for CPU parallelism
 
-#define TPB 16
+#define TPB 32
 
 __global__ void blockStripeKernel(int* A, int* B, int* C, int N) {
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -15,46 +15,6 @@ __global__ void blockStripeKernel(int* A, int* B, int* C, int N) {
         for (int k = 0; k < N; k++) {
             sum += A[row * N + k] * B[col * N + k];
         }
-        C[row * N + col] = sum;
-    }
-}
-
-__global__ void blockStripeKernelShared(int* A, int* B, int* C, int N) {
-    __shared__ int tileA[TPB][TPB];
-    __shared__ int tileB[TPB][TPB];
-
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-    int sum = 0;
-
-    for (int t = 0; t < (N + TPB - 1) / TPB; t++) {
-        // Load tiles into shared memory
-        if (row < N && t * TPB + threadIdx.x < N) {
-            tileA[threadIdx.y][threadIdx.x] = A[row * N + t * TPB + threadIdx.x];
-        }
-        else {
-            tileA[threadIdx.y][threadIdx.x] = 0;
-        }
-
-        if (col < N && t * TPB + threadIdx.y < N) {
-            tileB[threadIdx.y][threadIdx.x] = B[(t * TPB + threadIdx.y) * N + col];
-        }
-        else {
-            tileB[threadIdx.y][threadIdx.x] = 0;
-        }
-
-        __syncthreads();
-
-        // Compute partial result
-        for (int k = 0; k < TPB; k++) {
-            sum += tileA[threadIdx.y][k] * tileB[k][threadIdx.x];
-        }
-
-        __syncthreads();
-    }
-
-    // Write final result
-    if (row < N && col < N) {
         C[row * N + col] = sum;
     }
 }
@@ -121,9 +81,9 @@ void printMatrix(int* mat, int N, int maxSize) {
 
 
 int main() {
-    int n_threads = 1;
+    int n_threads = 12;
     int N = 8192;
-    int loadProportion = N + 1;
+    int loadProportion = 512;
 
     //_sleep(500);
 
@@ -161,7 +121,6 @@ int main() {
     cudaMemcpy(d_A, h_A, N * N * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_B, h_B, N * N * sizeof(int), cudaMemcpyHostToDevice);
 
-    // Prepare GPU launch parameters
     dim3 threadsPerBlock(TPB, TPB);
     dim3 numBlocks((N + TPB - 1) / TPB, (gpuEndRow - gpuStartRow + TPB - 1) / TPB);
 
@@ -174,12 +133,9 @@ int main() {
 
     // Start CPU computation in parallel
     //============================================================
-
-    // GPU works on the second part of the matrix
-    blockStripeKernelShared << <numBlocks, threadsPerBlock, 0, stream >> > (d_A, d_B, d_C, N);
+    blockStripeKernel << <numBlocks, threadsPerBlock, 0, stream >> > (d_A, d_B, d_C, N);
     cudaEventRecord(stop, stream);
 
-    // CPU works on the first part of the matrix
     cpuStart = omp_get_wtime();
     cpuMatrixMultiply(h_A, h_B, h_C, N, cpuStartRow, cpuEndRow, n_threads);
     cpuEnd = omp_get_wtime();
@@ -187,29 +143,24 @@ int main() {
     cudaMemcpy(h_C + gpuStartRow * N, d_C + gpuStartRow * N, (gpuEndRow - gpuStartRow) * N * sizeof(int), cudaMemcpyDeviceToHost);
 
     cudaEventSynchronize(stop);
-    cudaDeviceSynchronize();
 
     double endAttempt = omp_get_wtime();
 
     float gpuTime = 0;
     cudaEventElapsedTime(&gpuTime, start, stop);
 
-    // Copy GPU result back
 
-
-    // Print results
     printf("CPU Execution Time: %f ms\n", (cpuEnd - cpuStart) * 1000);
     printf("-------------------------\n");
     printf("GPU Execution Time: %f ms\n", gpuTime);
     printf("-------------------------\n");
-    //printf("Total time: %f ms\n", (endAttempt - startAttempt) * 1000);
+    printf("Total time: %f ms\n", (endAttempt - startAttempt) * 1000);
 
-    // Optionally print the matrix
     printMatrix(h_C, N, 10);
 
 
 
-    // Clean up
+    // Cleanup
     free(h_A);
     free(h_B);
     free(h_C);
